@@ -20,12 +20,6 @@ def run_tests():
         'np_ndarray': (decode_np_ndarray_init, decode_np_ndarray_final),
         'tuple': (decode_tuple, None)
     }
-    if str_mode == 'unicode':
-        default_encode_settings[bytes] = ('bytes', encode_bytes)
-        default_decode_settings['bytes'] = (decode_bytes, None)
-    else:  # str_mode == 'bytes'
-        default_encode_settings[unicode] = ('unicode', encode_unicode)
-        default_decode_settings['unicode'] = (decode_unicode, None)
 
     def test_tuple():
         data = (1, 2, 3)
@@ -48,7 +42,10 @@ def run_tests():
     def test_default_string():
         data = 'hello!'
         data2 = PreEncoder(default_encode_settings).encode(data)
-        data2_expect = [data]
+        if str_mode == 'bytes':
+            data2_expect = ['b' + data]
+        else:
+            data2_expect = ['u' + data]
         assert data2 == data2_expect
         data3 = PostDecoder(default_decode_settings).decode(data2)
         assert data == data3
@@ -57,10 +54,10 @@ def run_tests():
     def test_alt_string():
         if str_mode == 'bytes':
             data = u'hello!'
-            data2_expect = [['py/unicode', 1], 'hello!']
+            data2_expect = ['uhello!']
         else:
             data = b'hello!'
-            data2_expect = [['py/bytes', 1], [0, 'hello!']]
+            data2_expect = ['bhello!']
         data2 = PreEncoder(default_encode_settings).encode(data)
         assert data2 == data2_expect
         data3 = PostDecoder(default_decode_settings).decode(data2)
@@ -98,16 +95,17 @@ def run_tests():
         data = np.array([[1,2], [3,4]])
         data2 = PreEncoder(default_encode_settings).encode(data)
         if str_mode == 'bytes':
-            data2_expect = [['py/np_ndarray', 1], [[2], [3], [6]], ['dtype',
-                'int64'], ['shape', [4]], ['py/tuple', 5], [2, 2], ['data',
-                '\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00'
-                '\x00\x03\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x00\x00'
-                '\x00\x00']]
+            data2_expect = [['py/np_ndarray', 1], [[2], [5], [9]], [[3], [4]],
+                'bdtype', 'bint64', [[6], [7]], 'bshape', ['py/tuple', 8], [2,
+                2], [[10], [11]], 'bdata', 'b\x01\x00\x00\x00\x00\x00\x00\x00'
+                '\x02\x00\x00\x00\x00\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00'
+                '\x00\x04\x00\x00\x00\x00\x00\x00\x00']
         else: # unicode
-            data2_expect = [['py/np_ndarray', 1], [[2], [3], [6]], ['dtype',
-                'int64'], ['shape', [4]], ['py/tuple', 5], [2, 2], ['data', [7]
-                ], ['py/bytes', 8], [1,
-                'AQAAAAAAAAACAAAAAAAAAAMAAAAAAAAABAAAAAAAAAA=']]
+            data2_expect = [['py/np_ndarray', 1], [[2], [5], [9]], [[3], [4]],
+                'udtype', 'uint64', [[6], [7]], 'ushape', ['py/tuple', 8], [2,
+                2], [[10], [11]], 'udata', 'b\x01\x00\x00\x00\x00\x00\x00\x00'
+                '\x02\x00\x00\x00\x00\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00'
+                '\x00\x04\x00\x00\x00\x00\x00\x00\x00']
         assert data2 == data2_expect
         data3 = PostDecoder(default_decode_settings).decode(data2)
         assert (data == data3).all()
@@ -116,9 +114,16 @@ def run_tests():
     def test_encode_np_object_array():
         data = np.array({1: 2, 3: 4})
         data2 = PreEncoder(default_encode_settings).encode(data)
-        data2_expect = [['py/np_ndarray', 1, 3], [[2]], ['dtype', 'object'],
-            [[4], [7]], ['shape', [5]], ['py/tuple', 6], [], ['data', [8]],
-            ['py/', 9, 10], [1, 2], [3, 4]]
+        if str_mode == 'bytes':
+            data2_expect = [['py/np_ndarray', 1, 5], [[2]], [[3], [4]],
+                'bdtype', 'bobject', [[6], [10]], [[7], [8]], 'bshape', [
+                'py/tuple', 9], [], [[11], [12]], 'bdata', ['py/', 13, 14], [1,
+                2], [3, 4]]
+        else:
+            data2_expect = [['py/np_ndarray', 1, 5], [[2]], [[3], [4]],
+                'udtype', 'uobject', [[6], [10]], [[7], [8]], 'ushape', [
+                'py/tuple', 9], [], [[11], [12]], 'udata', ['py/', 13, 14], [1,
+                2], [3, 4]]
         assert data2 == data2_expect
         data3 = PostDecoder(default_decode_settings).decode(data2)
         assert data == data3
@@ -128,17 +133,29 @@ def run_tests():
         data = np.array({123: None})
         data[()][123] = data  # now circular
         data2 = PreEncoder(default_encode_settings).encode(data)
+        if str_mode == 'bytes':
+            s_prefix = 'b'
+        else:
+            s_prefix = 'u'
+        s_dtype = s_prefix + 'dtype'
+        s_object = s_prefix + 'object'
+        s_shape = s_prefix + 'shape'
+        s_data = s_prefix + 'data'
         data2_expect = [
-            ['py/np_ndarray', 1, 3],  # 0
+            ['py/np_ndarray', 1, 5],  # 0
             [[2]],                    # 1
-            ['dtype', 'object'],      # 2
-            [[4], [7]],               # 3
-            ['shape', [5]],           # 4
-            ['py/tuple', 6],          # 5
-            [],                       # 6
-            ['data', [8]],            # 7
-            ['py/', 9],               # 8
-            [123, [0]]]               # 9
+            [[3], [4]],               # 2
+            s_dtype,                 # 3
+            s_object,                # 4
+            [[6], [10]],              # 5
+            [[7], [8]],               # 6
+            s_shape,                 # 7
+            ['py/tuple', 9],          # 8
+            [],                       # 9
+            [[11], [12]],             # 10
+            s_data,                  # 11
+            ['py/', 13],              # 12
+            [123, [0]]]               # 13
         assert data2 == data2_expect
         data3 = PostDecoder(default_decode_settings).decode(data2)
         # PS cannot do assert data == data3
@@ -158,4 +175,5 @@ def run_tests():
         print('Test:', test_description)
         test()
 
-run_tests()
+if __name__ == '__main__':
+    run_tests()

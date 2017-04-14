@@ -8,6 +8,12 @@ import numpy as np
 import json
 #import msgpack
 
+
+# Exception that should never be reachable in the code if the functions
+# are used as intended.
+class NeverHappens(Exception): pass
+
+
 try:
     unicode
     # Note: in python2:  str == bytes
@@ -18,31 +24,71 @@ except NameError:
     str_mode = 'unicode'
 
 if str_mode == 'bytes':  # typically python2
+
     str_types = (str, unicode)
-    str_type_names = ('str', 'unicode')
-    str_alias = 'bytes'
     def force_str_type0(s):
         if isinstance(s, str_types[1]):
             return s.encode()
         return s
-    def force_str_type1(s):
-        if isinstance(s, str_types[0]):
-            return s.decode()
-        return s
+    def encode_str(s):
+        if isinstance(s, bytes):
+            return 'b' + s
+        elif isinstance(s, unicode):
+            return 'u' + s.encode('utf8')
+        else:
+            raise NeverHappens
+    def decode_str(s):
+        if isinstance(s, bytes):
+            if s[:1] == 'b':
+                return s[1:]
+            elif s[:1] == 'u':
+                return s[1:].decode('utf8')
+            else:
+                raise Exception('Bad string' + s)
+        elif isinstance(s, unicode):
+            if s[:1] == u'b':
+                return s[1:].encode('latin1')
+            elif s[:1] == u'u':
+                return s[1:]
+            else:
+                raise Exception('Bad string' + s.encode())
+        else:
+            raise NeverHappens
+
 elif str_mode == 'unicode':  # typically python3
+
     str_types = (str, bytes)
-    str_type_names = ('str', 'bytes')
-    str_alias = 'str'
     def force_str_type0(s):
         if isinstance(s, str_types[1]):
             return s.decode()
         return s
-    def force_str_type1(s):
-        if isinstance(s, str_types[0]):
-            return s.encode()
-        return s
-else:
-    raise Exception('WTF')
+    def encode_str(s):
+        if isinstance(s, bytes):
+            return 'b' + s.decode('latin1')
+        elif isinstance(s, str):
+            return 'u' + s
+        else:
+            raise NeverHappens
+    def decode_str(s):
+        if isinstance(s, bytes):
+            if s[:1] == b'b':
+                return s[1:]
+            elif s[:1] == b'u':
+                return s[1:].decode('utf8')
+            else:
+                raise Exception('Bad string' + s.decode('latin1'))
+        elif isinstance(s, str):
+            if s[:1] == 'b':
+                return s[1:].encode('latin1')
+            elif s[:1] == 'u':
+                return s[1:]
+            else:
+                raise Exception('Bad string' + s.encode())
+        else:
+            raise NeverHappens
+
+else:  # str_mode *cannot* be something else
+    raise NeverHappens
 
 
 
@@ -84,24 +130,13 @@ class PreEncoder():
 
     # encoders is a dictionary type:(name, encoder_function)
     def __init__(self, encoders = {}):
+        # TODO: sanity check: encoders keys must be the native string type
         self.ids = {}  # dictionary of id:id_new for recurring items in data
         self.slots = []
         self.encoders = encoders   # name:type pairs
         self.encoders_types = tuple(encoders.keys())
-        self.basictypes = [int, float, type(None)]  # don't walk these types
-        if not str_types[0] in encoders and not str_types[1] in encoders:
-            raise Exception('Must pick whether to encode bytes/unicode')
-        elif str_types[0] in encoders:
-            self.final_to_str = force_str_type1  # type used for "py/..." strings
-            self.basictypes.append(str_types[1])
-            self.str_type = str_types[1]
-        elif str_types[1] in encoders:
-            self.final_to_str = force_str_type0
-            self.basictypes.append(str_types[0])
-            self.str_type = str_types[0]
-        elif str_types[0] in encoders and str_types[1] in encoders:
-            raise Exception('Cannot have encoders for BOTH unicode and bytes')
-        self.dict_key = self.final_to_str('py/')
+        # basictypes: don't walk these types:
+        self.basictypes = [int, float, type(None)]
         self.basictypes = tuple(self.basictypes)
 
     def obj_slot(self, obj):
@@ -125,8 +160,10 @@ class PreEncoder():
     def apply_encoders(self, obj):
         encoder_name = self.encoders[type(obj)][0]
         encoder_func = self.encoders[type(obj)][1]
-        data_init, data_final = encoder_func(obj, self.str_type)
-        encoding_tag = self.final_to_str(self.dict_key + encoder_name)
+        data_init, data_final = encoder_func(obj)
+        # TODO: sanity check: encode_name MUST be native str type
+        # (This should already be done when setting up the PreEncoder class)
+        encoding_tag = 'py/' + encoder_name
         encoder_params = [data_init]
         if not data_final is None:
             encoder_params.append(data_final)
@@ -136,7 +173,9 @@ class PreEncoder():
         slot = self.obj_slot(obj)
         if not slot.done:
             slot.done = True  # Don't have to walk it again, because we'll do it now
-            if isinstance(obj, list):
+            if isinstance(obj, str_types):
+                slot.encoded = encode_str(obj)
+            elif isinstance(obj, list):
                 subslots = [None] * len(obj)  # only needed for debugging
                 slot.encoded = [None] * len(obj)
                 for k, item in enumerate(obj):
@@ -148,7 +187,7 @@ class PreEncoder():
                         slot.encoded[k] = [subslot.idx]
             elif isinstance(obj, dict):
                 subslots = [None] * len(obj)
-                slot.encoded = [self.dict_key] + [None] * len(obj)
+                slot.encoded = ['py/'] + [None] * len(obj)
                 for k, key in enumerate(obj.keys()):
                     kv_obj = [key, obj[key]]
                     subslot = self.walk(kv_obj)
@@ -161,7 +200,7 @@ class PreEncoder():
                 params_slots = [param_slot.idx for param_slot in params_slots]
                 slot.encoded = [encoding_tag] + params_slots
             else:
-                raise Exception('WTF')
+                raise NeverHappens
         return slot
 
     def encode(self, obj):
@@ -172,10 +211,20 @@ class PreEncoder():
 if str_mode == 'bytes':
     re_deserializer0 = re.compile('py/(.*)')
     re_deserializer1 = re.compile(u'py/(.*)')
+    def deserializer_match(s):
+        if isinstance(s, bytes):
+            return re_deserializer0.match(s)
+        else:
+            return re_deserializer1.match(s)
 else:  # str_mode == 'unicode'
     re_deserializer0 = re.compile('py/(.*)')
     re_deserializer1 = re.compile(b'py/(.*)')
-    
+    def deserializer_match(s):
+        if isinstance(s, bytes):
+            return re_deserializer1.match(s)
+        else:
+            return re_deserializer0.match(s)
+
 
 # TODO:
 # "py/..."  and "py/" need to be escaped  (to "_py" to prevent lengthening)
@@ -191,25 +240,6 @@ class PostDecoder():
         self.decoders = decoders   # name:(object_creation_fn, object_configure_fn) pairs
         self.decoders_names = tuple(decoders.keys())
         self.basictypes = [int, float, type(None)]  # don't walk these types
-        if (not str_type_names[0] in decoders 
-                and not str_type_names[1] in decoders
-                and not str_alias in decoders):
-            raise Exception('Must pick whether to decode bytes/str')
-        elif str_type_names[0] in decoders or str_alias in decoders:
-            self.final_to_str = force_str_type1  # type used for "py/..." strings
-            self.str_type = str_types[1]
-            self.re_deserializer = re_deserializer1
-            self.basictypes.append(str_type_names[1])
-        elif str_type_names[1] in decoders:
-            self.final_to_str = force_str_type0
-            self.str_type = str_types[0]
-            self.re_deserializer = re_deserializer0
-            self.basictypes.append(str_type_names[0])
-        elif str_type_names[0] in decoders and str_type_names[1] in decoders:
-            raise Exception('Cannot have decoders for BOTH str and bytes')
-        else:
-            raise Exception('WTF')
-        self.dict_key = self.final_to_str('py/')
         self.basictypes = tuple(self.basictypes)
 
     def decode(self, encoded_list):
@@ -240,13 +270,14 @@ class PostDecoder():
         decoder_init_fn = None
         decoder_final_fn = None
         deserial_obj = None
-        if len(encoded) > 1 and isinstance(encoded[0], self.str_type):
-            strn = encoded[0]
-            if strn == self.dict_key:
+        if len(encoded) > 1 and isinstance(encoded[0], str_types):
+            strn = force_str_type0(encoded[0])
+            if strn == 'py/':
                 return dict, None, None
-            check_pytype = self.re_deserializer.match(strn)
+            check_pytype = deserializer_match(strn)
             if not check_pytype is None:
                 deserial_name = check_pytype.groups()[0]
+                deserial_name = force_str_type0(deserial_name)
                 if not deserial_name in self.decoders:
                     raise Exception("Don't know how to decode py/%s" % deserial_name)
                 decoder_init_fn, decoder_final_fn = self.decoders[deserial_name]
@@ -256,8 +287,11 @@ class PostDecoder():
         if not slot.done:
             slot.done = True
             if not isinstance(slot.encoded, list):
-                # basic type
-                slot.raw = slot.encoded
+                if not isinstance(slot.encoded, str_types):
+                    # basic type
+                    slot.raw = slot.encoded
+                else:
+                    slot.raw = decode_str(slot.encoded)
                 return
             else:
                 (decoder_init_fn, decoder_final_fn, deserial_obj
@@ -303,7 +337,7 @@ class PostDecoder():
                         raise Exception('Object finalizer function must return the same object')
 
 
-def encode_tuple(obj, str_type):
+def encode_tuple(obj):
     return list(obj), None
 
 
@@ -311,8 +345,8 @@ def decode_tuple(config):
     return tuple(config)
 
 
-def encode_np_ndarray(obj, str_type):
-    if str_type == str:
+def encode_np_ndarray(obj):
+    if not isinstance('', bytes):
         data_key = 'data'
         obj_init = [
             ['dtype', obj.dtype.name], 
@@ -351,7 +385,7 @@ def decode_np_ndarray_final(obj, config):
     return obj
 
 
-def encode_bytes(obj, str_type):
+def encode_bytes(obj):
     enc0 = obj.decode('latin1'); enc1 = b64encode(obj).decode('latin1')
     if len(json.dumps(enc0)) < len(json.dumps(enc1)):
         return [0, enc0], None
@@ -365,12 +399,14 @@ def decode_bytes(obj):
     elif obj[0] == 1:
         return b64decode(obj[1])
     else:
-        raise Exception('WTF')
+        raise NeverHappens
 
 
-def encode_unicode(obj, str_type):
+def encode_unicode(obj):
     return obj.encode(), None
 
 
 def decode_unicode(obj):
-    return obj.decode()
+    if isinstance(obj, bytes):
+        return obj.decode()
+    return obj
