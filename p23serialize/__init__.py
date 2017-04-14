@@ -102,9 +102,7 @@ def force_str_type0_keys(dct):
 NOTES:
 
 Encoder functions:
-- Two input parameters: object, str_type
-  - str_type is the chosen string type that will not be encoded, but considered
-    a "basic" type.
+- One input parameter: object
 - Two outputs:
   - Data for initial object reconstruction  (e.g. whether numpy ndarray is an object, or just array)
   - Data to complete the object reconstruction  (e.g. numpy shape, dtype, data_bytes)
