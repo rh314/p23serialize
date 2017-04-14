@@ -145,15 +145,15 @@ def run_tests():
             ['py/np_ndarray', 1, 5],  # 0
             [[2]],                    # 1
             [[3], [4]],               # 2
-            s_dtype,                 # 3
-            s_object,                # 4
+            s_dtype,                  # 3
+            s_object,                 # 4
             [[6], [10]],              # 5
             [[7], [8]],               # 6
-            s_shape,                 # 7
+            s_shape,                  # 7
             ['py/tuple', 9],          # 8
             [],                       # 9
             [[11], [12]],             # 10
-            s_data,                  # 11
+            s_data,                   # 11
             ['py/', 13],              # 12
             [123, [0]]]               # 13
         assert data2 == data2_expect
