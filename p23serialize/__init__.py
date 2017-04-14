@@ -90,7 +90,13 @@ elif str_mode == 'unicode':  # typically python3
 else:  # str_mode *cannot* be something else
     raise NeverHappens
 
-
+# Update dictionary keys so that they are all of the native string type
+def force_str_type0_keys(dct):
+    for key in dct:
+        key_fixed = force_str_type0(key)
+        if not key_fixed in dct:
+            dct[key_fixed] = dct[key]
+            del dct[key]
 
 '''
 NOTES:
@@ -370,6 +376,8 @@ def encode_np_ndarray(obj):
 
 def decode_np_ndarray_init(config):
     config = dict(config)
+    force_str_type0_keys(config)
+
     if not config['dtype'] == 'object':
         obj = np.fromstring(config['data'], dtype = config['dtype'])
         obj = obj.reshape(config['shape'])
