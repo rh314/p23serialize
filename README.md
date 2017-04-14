@@ -19,6 +19,9 @@ MIT license - see LICENSE.txt
 * Deserialization: object creation vs finalization (or, "what is needed for circular deserialization")
 * Other libraries out there - and why I decided to write my own instead. (hint: unicode vs str and python 2 vs 3 issues)
 * Notes about json behaviour with python 2, 3, bytes and unicode (e.g. `json.dumps(['aa', u'aa'])` vs `json.dumps(['aa', b'aa'])` and associated `json.loads` stuff)
+* Explain different language limitations when it comes to dictionary keys.
+
+  (e.g. Python dictionary keys must be hashable. Javascript is even more strict - only strings are allowed as keys)
 
 ## REPO TODO's
 * Add requirements.txt for pip
